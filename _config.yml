@@ -1,0 +1,86 @@
+title: Rising Spire Origins - Fandom Guide
+description: Comprehensive fandom guide for Rising Spire Origins - Auto-generated from game data
+url: "https://lfb-studios.github.io"
+baseurl: "/rising-spire-fandom"
+
+# Theme
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+# Navigation
+header_pages:
+  - index.md
+  - Characters/CharacterDatabase.md
+  - World/WorldGuide.md
+  - Enemies/EnemyDatabase.md
+  - Quests/QuestWalkthrough.md
+  - Navigation.md
+
+# Site settings
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# SEO
+lang: en
+author: LFB Studios
+twitter:
+  username: LFBStudios
+  card: summary
+
+# Collections
+collections:
+  characters:
+    output: true
+    permalink: /:collection/:name/
+  world:
+    output: true
+    permalink: /:collection/:name/
+  enemies:
+    output: true
+    permalink: /:collection/:name/
+  quests:
+    output: true
+    permalink: /:collection/:name/
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
+  - scope:
+      path: ""
+      type: "characters"
+    values:
+      layout: "page"
+  - scope:
+      path: ""
+      type: "world"
+    values:
+      layout: "page"
+  - scope:
+      path: ""
+      type: "enemies"
+    values:
+      layout: "page"
+  - scope:
+      path: ""
+      type: "quests"
+    values:
+      layout: "page"
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/ 

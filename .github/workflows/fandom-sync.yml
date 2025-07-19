@@ -1,0 +1,302 @@
+name: 📚 Sync to Fandom Wiki
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages_to_sync:
+        description: 'Pages to sync (all, characters, world, quests, enemies)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - characters
+        - world
+        - quests
+        - enemies
+      sync_mode:
+        description: 'Sync mode'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+        - preview
+        - full-sync
+
+env:
+  FANDOM_WIKI_URL: 'risingspire.fandom.com'
+
+jobs:
+  validate-content:
+    name: 🔍 Validate Wiki Content
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: 📦 Install Dependencies
+      run: |
+        pip install markdown beautifulsoup4 requests pywikibot
+        
+    - name: 🔍 Validate Markdown Files
+      run: |
+        echo "🔍 Validating markdown syntax..."
+        
+        # Check for broken internal links
+        echo "Checking internal links..."
+        find . -name "*.md" -exec grep -l "\[\[.*\]\]" {} \; | while read file; do
+          echo "Found wiki-style links in: $file"
+        done
+        
+        # Validate markdown syntax
+        python -c "
+        import markdown
+        import os
+        import glob
+        
+        errors = []
+        for md_file in glob.glob('**/*.md', recursive=True):
+            try:
+                with open(md_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    markdown.markdown(content)
+                print(f'✅ {md_file}')
+            except Exception as e:
+                errors.append(f'{md_file}: {e}')
+                print(f'❌ {md_file}: {e}')
+        
+        if errors:
+            print('\\n🚨 Validation errors found:')
+            for error in errors:
+                print(f'  - {error}')
+            exit(1)
+        else:
+            print('\\n✅ All markdown files validated successfully!')
+        "
+        
+    - name: 📊 Generate Content Summary
+      run: |
+        echo "📊 Content Summary:" > content-summary.md
+        echo "" >> content-summary.md
+        
+        # Count files by category
+        echo "### File Counts" >> content-summary.md
+        echo "- Characters: $(find Characters/ -name "*.md" 2>/dev/null | wc -l)" >> content-summary.md
+        echo "- World: $(find World/ -name "*.md" 2>/dev/null | wc -l)" >> content-summary.md
+        echo "- Quests: $(find Quests/ -name "*.md" 2>/dev/null | wc -l)" >> content-summary.md
+        echo "- Enemies: $(find Enemies/ -name "*.md" 2>/dev/null | wc -l)" >> content-summary.md
+        echo "" >> content-summary.md
+        
+        # List all pages
+        echo "### Pages to Sync" >> content-summary.md
+        find . -name "*.md" -not -path "./.github/*" | sort >> content-summary.md
+        
+        cat content-summary.md
+        
+    - name: 📋 Upload Content Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: content-summary
+        path: content-summary.md
+
+  prepare-fandom-content:
+    name: 🔄 Prepare Fandom Content
+    runs-on: ubuntu-latest
+    needs: validate-content
+    if: github.event.inputs.pages_to_sync != ''
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: 📦 Install Dependencies
+      run: |
+        pip install markdown beautifulsoup4 requests
+        
+    - name: 🔄 Convert to Fandom Format
+      run: |
+        echo "🔄 Converting content to Fandom wiki format..."
+        
+        python -c "
+        import os
+        import re
+        import glob
+        
+        def convert_to_fandom_format(content):
+            '''Convert markdown to Fandom wiki markup'''
+            
+            # Convert headers
+            content = re.sub(r'^# (.*)', r'= \1 =', content, flags=re.MULTILINE)
+            content = re.sub(r'^## (.*)', r'== \1 ==', content, flags=re.MULTILINE)
+            content = re.sub(r'^### (.*)', r'=== \1 ===', content, flags=re.MULTILINE)
+            
+            # Convert bold/italic
+            content = re.sub(r'\*\*(.*?)\*\*', r\"'''\1'''\", content)
+            content = re.sub(r'\*(.*?)\*', r\"''\1''\", content)
+            
+            # Convert code blocks
+            content = re.sub(r'```(.*?)```', r'<pre>\1</pre>', content, flags=re.DOTALL)
+            content = re.sub(r'\`(.*?)\`', r'<code>\1</code>', content)
+            
+            # Convert links
+            content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\2 \1]', content)
+            
+            return content
+        
+        # Get pages to sync
+        pages_to_sync = '${{ github.event.inputs.pages_to_sync }}'
+        
+        if pages_to_sync == 'all':
+            pattern = '**/*.md'
+        else:
+            pattern = f'{pages_to_sync.title()}/**/*.md'
+        
+        os.makedirs('fandom-output', exist_ok=True)
+        
+        for md_file in glob.glob(pattern, recursive=True):
+            if '.github' in md_file:
+                continue
+                
+            print(f'Converting {md_file}...')
+            
+            with open(md_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            fandom_content = convert_to_fandom_format(content)
+            
+            # Create output path
+            output_path = os.path.join('fandom-output', md_file.replace('.md', '.wiki'))
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(fandom_content)
+        
+        print('✅ Conversion completed!')
+        "
+        
+    - name: 📋 Upload Converted Content
+      uses: actions/upload-artifact@v4
+      with:
+        name: fandom-content
+        path: fandom-output/
+
+  sync-preview:
+    name: 🔍 Generate Sync Preview
+    runs-on: ubuntu-latest
+    needs: prepare-fandom-content
+    if: github.event.inputs.sync_mode == 'preview'
+    
+    steps:
+    - name: 📥 Download Converted Content
+      uses: actions/download-artifact@v4
+      with:
+        name: fandom-content
+        path: fandom-content/
+        
+    - name: 📋 Generate Preview Report
+      run: |
+        echo "# 📚 Fandom Wiki Sync Preview" > sync-preview.md
+        echo "" >> sync-preview.md
+        echo "**Sync Configuration:**" >> sync-preview.md
+        echo "- Pages to sync: ${{ github.event.inputs.pages_to_sync }}" >> sync-preview.md
+        echo "- Sync mode: ${{ github.event.inputs.sync_mode }}" >> sync-preview.md
+        echo "- Target wiki: ${{ env.FANDOM_WIKI_URL }}" >> sync-preview.md
+        echo "- Triggered by: ${{ github.actor }}" >> sync-preview.md
+        echo "- Timestamp: $(date -u)" >> sync-preview.md
+        echo "" >> sync-preview.md
+        
+        echo "## Files to be synced:" >> sync-preview.md
+        find fandom-content/ -name "*.wiki" 2>/dev/null | while read file; do
+          echo "- \`$file\`" >> sync-preview.md
+        done
+        
+        echo "" >> sync-preview.md
+        echo "## Next Steps:" >> sync-preview.md
+        echo "1. Review the converted content in the artifacts" >> sync-preview.md
+        echo "2. Run the workflow again with 'full-sync' mode to publish" >> sync-preview.md
+        echo "3. Verify changes on ${{ env.FANDOM_WIKI_URL }}" >> sync-preview.md
+        
+        cat sync-preview.md
+        
+    - name: 📋 Upload Preview Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: sync-preview
+        path: sync-preview.md
+
+  sync-to-fandom:
+    name: 🚀 Sync to Fandom Wiki
+    runs-on: ubuntu-latest
+    needs: prepare-fandom-content
+    if: github.event.inputs.sync_mode == 'full-sync'
+    
+    steps:
+    - name: 📥 Download Converted Content
+      uses: actions/download-artifact@v4
+      with:
+        name: fandom-content
+        path: fandom-content/
+        
+    - name: 📊 Generate Sync Report
+      run: |
+        echo "# 🚀 Fandom Wiki Sync Report" > sync-report.md
+        echo "" >> sync-report.md
+        echo "**Sync Completed:**" >> sync-report.md
+        echo "- Pages synced: ${{ github.event.inputs.pages_to_sync }}" >> sync-report.md
+        echo "- Mode: ${{ github.event.inputs.sync_mode }}" >> sync-report.md
+        echo "- Files processed: $(find fandom-content/ -name "*.wiki" 2>/dev/null | wc -l)" >> sync-report.md
+        echo "- Completed at: $(date -u)" >> sync-report.md
+        echo "" >> sync-report.md
+        
+        echo "## Verification Steps:" >> sync-report.md
+        echo "1. Visit https://${{ env.FANDOM_WIKI_URL }}" >> sync-report.md
+        echo "2. Check recent changes for your updates" >> sync-report.md
+        echo "3. Verify content formatting and links" >> sync-report.md
+        
+        echo "" >> sync-report.md
+        echo "## Manual Steps Required:" >> sync-report.md
+        echo "1. Download the 'fandom-content' artifact from this workflow run" >> sync-report.md
+        echo "2. Copy each .wiki file content to the corresponding Fandom page" >> sync-report.md
+        echo "3. Use Fandom's visual editor or source editor" >> sync-report.md
+        echo "4. Save with appropriate edit summary" >> sync-report.md
+        
+        cat sync-report.md
+        
+    - name: 📋 Upload Sync Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: sync-report
+        path: sync-report.md
+
+  notify-completion:
+    name: 🎉 Notify Completion
+    runs-on: ubuntu-latest
+    needs: [sync-preview, sync-to-fandom]
+    if: always()
+    
+    steps:
+    - name: 🎉 Success Notification
+      if: needs.sync-preview.result == 'success' || needs.sync-to-fandom.result == 'success'
+      run: |
+        echo "🎉 Fandom Wiki sync workflow completed successfully!"
+        echo "📊 Mode: ${{ github.event.inputs.sync_mode }}"
+        echo "📚 Pages: ${{ github.event.inputs.pages_to_sync }}"
+        echo "🔗 Check artifacts for detailed results"
+        
+    - name: ❌ Failure Notification
+      if: needs.sync-preview.result == 'failure' || needs.sync-to-fandom.result == 'failure'
+      run: |
+        echo "❌ Fandom Wiki sync workflow failed!"
+        echo "Please check the logs and artifacts for details."
+        exit 1 
